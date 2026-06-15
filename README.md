@@ -117,4 +117,4 @@ assets/fallback_puzzles.json  ~60 bundled tactics for offline variety
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE.md).
