@@ -6,25 +6,25 @@ A chess alarm clock for Android: the alarm keeps ringing until you solve a chess
 
 I wanted two things at once: to wake up without hitting snooze, and to keep my tactics sharp without remembering to open a chess app. A puzzle you have to solve before the alarm stops does both. You can't dismiss it half-asleep, and you get a few minutes of calculation in before your feet hit the floor.
 
-Most "math problem" alarm dismissals are trivial. A chess puzzle forces real attention, and the difficulty is self-calibrating because Lichess publishes a fresh tactic every day.
+Most "math problem" alarm dismissals are trivial and I would find myself dismissing them without much effort. A chess puzzle forces real attention, is engaging, and the difficulty is self-calibrating because Lichess publishes a fresh tactic every day.
 
 ## ⚡ How the Sleep as Android Integration Works
 
 Sleep as Android lets third-party apps act as a "dismiss CAPTCHA": the alarm fires, your app launches, and the alarm only stops when your app reports the puzzle solved. There is an official support library for this, but it depends on the legacy `android.support.*` packages, so I reverse-engineered the wire contract and reimplemented the minimal version natively in Kotlin.
 
-The contract is not obvious. When Sleep launches the app, it hands over pre-built callback `Intent` objects as `Parcelable` extras, keyed by event name (`"solved"`, `"unsolved"`, `"alive"`). To report an event you pull the matching intent out of the launch bundle and fire it yourself, switching between `sendBroadcast` and `startActivity` depending on whether the captcha is operational or just being previewed in Sleep's settings picker. The app also sends an `"alive"` heartbeat every five seconds so Sleep doesn't time the captcha out while the sleeper is still calculating.
+This contract is not obvious for a few reasons. When Sleep launches the app, it hands over pre-built callback `Intent` objects as `Parcelable` extras, keyed by event name (`"solved"`, `"unsolved"`, `"alive"`). To report an event you pull the matching intent out of the launch bundle and fire it yourself, switching between `sendBroadcast` and `startActivity` depending on whether the captcha is operational or just being previewed in Sleep's settings picker. The app also sends an `"alive"` heartbeat every five seconds so Sleep doesn't time the captcha out while the sleeper is still calculating.
 
-One problem took the longest to solve: Sleep wouldn't list the app as a captcha at all. The cause turned out to be Android 11+ package visibility, not the intent filter. I pulled Sleep's APK and confirmed it has no `QUERY_ALL_PACKAGES` permission and no `<queries>` entry for the captcha `OPEN` action, so it literally cannot see a sideloaded third-party captcha. The fix is to install with the `--force-queryable` flag, which makes the app visible to every installed app and gets it listed. The native contract lives in [`MainActivity.kt`](android/app/src/main/kotlin/com/puzzler/puzzler/MainActivity.kt) and [`CaptchaActivity.kt`](android/app/src/main/kotlin/com/puzzler/puzzler/CaptchaActivity.kt) (sharing logic in [`CaptchaHostActivity.kt`](android/app/src/main/kotlin/com/puzzler/puzzler/CaptchaHostActivity.kt)), bridged to Dart over a `MethodChannel` in [`captcha.dart`](lib/captcha.dart).
+One problem took the longest to solve: Sleep wouldn't list the app as a captcha at all. The cause turned out to be Android 11+ package visibility, not the intent filter. I pulled Sleep's APK and confirmed it has no `QUERY_ALL_PACKAGES` permission and no `<queries>` entry for the captcha `OPEN` action, so it literally cannot see a sideloaded third-party captcha. The native contract lives in [`MainActivity.kt`](android/app/src/main/kotlin/com/puzzler/puzzler/MainActivity.kt) and [`CaptchaActivity.kt`](android/app/src/main/kotlin/com/puzzler/puzzler/CaptchaActivity.kt) (sharing logic in [`CaptchaHostActivity.kt`](android/app/src/main/kotlin/com/puzzler/puzzler/CaptchaHostActivity.kt)), bridged to Dart over a `MethodChannel` in [`captcha.dart`](lib/captcha.dart).
 
 ### Selecting It in Sleep as Android
 
-Install both apps on the same phone, then open Sleep at least once after installing Puzzler so it re-scans for captcha apps. To assign it: open the **Alarms** tab, tap an alarm, tap **CAPTCHA**, and choose **"Chess puzzle"** from the list. It lists as "Chess puzzle", not "Puzzler", which is the most common reason people think it's missing. If it still doesn't appear, force-stop Sleep and reopen it to clear its cached captcha list, confirm Sleep is up to date (package-visibility discovery needs a recent build), and make sure both apps are in the same profile.
+Install both apps on the same phone, then open Sleep at least once after installing Puzzler so it re-scans for captcha apps. To assign it: open the **Alarms** tab, tap an alarm, tap **CAPTCHA**, and choose **"Chess puzzle"** from the list. If it still doesn't appear, force-stop Sleep and reopen it to clear its cached captcha list, confirm Sleep is up to date (package-visibility discovery needs a recent build), and make sure both apps are in the same profile.
 
 ## 🧠 The Offline Analysis Engine
 
-After you solve, the analysis board shows "best line" arrows so you can test alternatives: a blue arrow for the best move for the side to move, an orange arrow for the opponent's best reply, and a chip showing live `depth N · eval/M#`. These come from a chess engine I wrote in pure Dart ([`engine.dart`](lib/engine.dart)): negamax with alpha-beta pruning, quiescence search, killer-move and history ordering, check extensions, triangular-PV extraction, and a tapered piece-square evaluation. It runs in a background isolate with streaming iterative deepening, so the arrows sharpen the longer you look at a position (roughly a 10-second budget, capped at depth 64, stopping early on a forced mate).
+After you solve the puzzle, the analysis board shows "best line" arrows so you can test alternatives (what would happen if I played a different move?): a green arrow for the best move for the side to move, and a chip showing live `depth N · eval/M#`. These come from a chess engine I wrote in pure Dart ([`engine.dart`](lib/engine.dart)): negamax with alpha-beta pruning, quiescence search, killer-move and history ordering, check extensions, triangular-PV extraction, and a tapered piece-square evaluation. It runs in a background isolate with streaming iterative deepening, so the arrows sharpen the longer you look at a position (roughly a 10-second budget, capped at depth 64, stopping early on a forced mate).
 
-I chose pure Dart over the `stockfish` FFI package for two concrete reasons. The target device is a Pixel 7 running Android with 16 KB memory pages, which the base Stockfish wrapper isn't built for, and modern Stockfish needs an NNUE network that some wrappers download at runtime, which breaks the offline requirement. The whole point is that the puzzle works at 6 a.m. with no network. The engine is weaker than Stockfish, but it reliably surfaces the key move in a tactical position, which is all the analysis board needs.
+I chose pure Dart over the `stockfish` FFI package for two concrete reasons. My target device is a Pixel 7 running Android with 16 KB memory pages, which the base Stockfish wrapper isn't built for, and modern Stockfish needs an NNUE network that some wrappers download at runtime, which breaks the offline requirement. The whole point is that the puzzle works at 6 a.m. with no network. The engine is weaker than Stockfish, but it reliably surfaces the key best moves in a tactical position, which is all the analysis board needs.
 
 ## 🛠️ Tech Stack
 
@@ -38,7 +38,7 @@ I chose pure Dart over the `stockfish` FFI package for two concrete reasons. The
 | Persistence | `shared_preferences` | Streaks, XP, and the pre-fetched puzzle cache |
 | Alarm integration | Native Kotlin + `MethodChannel` | Sleep as Android captcha contract |
 
-No backend, no database server. Everything runs on the device.
+This app has no backend database server. Everything runs on the device itself with direct API calls.
 
 ## 🧩 How the Puzzles Work
 
@@ -48,7 +48,7 @@ Solve-gating compares moves by resulting position, not by raw notation. A user m
 
 For variety beyond the once-a-day puzzle, the app ships about 60 bundled tactics and keeps a pre-fetched cache ([`puzzle_source.dart`](lib/puzzle_source.dart)) so an alarm never has to make a live API call against a rate-limited endpoint. The cache hands out a random puzzle each time, so the morning session isn't the same order every day.
 
-## 🚀 Running It
+## 🚀 Quick Start
 
 This is a personal Android build. You will need Flutter 3.44+ (Dart 3.12+), JDK 17, and an Android device.
 
@@ -71,7 +71,7 @@ A plain `flutter install` or `adb install` re-hides the app from Sleep, so the `
 
 Build environment notes:
 
-- Flutter must use JDK 17 for Gradle, not the Android Studio JBR: `flutter config --jdk-dir "<path-to-jdk-17>"`. Java 21 fails with "Unsupported class file major version 65".
+- Flutter must use JDK 17 for Gradle, not the Android Studio JBR: `flutter config --jdk-dir "<path-to-jdk-17>"`.
 - On the Pixel 7, Google Play Protect blocks ADB installs with `INSTALL_FAILED_VERIFICATION_FAILURE` until it is disabled on the phone.
 
 ## 📂 Project Structure
@@ -111,7 +111,7 @@ assets/fallback_puzzles.json  ~60 bundled tactics for offline variety
 
 ## 🗺️ Possible Extensions
 
-- Per-difficulty puzzle selection mapped to Sleep's 1–5 difficulty slider.
+- Per-difficulty puzzle selection mapped to Sleep's difficulty slider.
 - A stronger engine via `lichess-org/dart-stockfish`, once 16 KB pages and offline NNUE are verified.
 - Themed puzzle packs (endgames, mating nets) for targeted practice.
 
